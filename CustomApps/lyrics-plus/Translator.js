@@ -3,6 +3,9 @@ const kuromojiPath = "https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1
 const aromanize = "https://cdn.jsdelivr.net/npm/aromanize@0.1.5/aromanize.min.js";
 const openCCPath = "https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.min.js";
 
+// UMD pinyin library (update this URL if you prefer another lib)
+const pinyinProPath = "https://cdn.jsdelivr.net/npm/pinyin-pro@3.18.2/dist/index.js";
+
 const dictPath = "https:/cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict";
 
 class Translator {
@@ -17,6 +20,9 @@ class Translator {
 		this.applyKuromojiFix();
 		this.injectExternals(lang);
 		this.createTranslator(lang);
+
+		// pinyin availability flag
+		this._pinyinLoaded = false;
 	}
 
 	includeExternal(url) {
@@ -39,6 +45,8 @@ class Translator {
 				break;
 			case "zh":
 				this.includeExternal(openCCPath);
+				// also include pinyin library
+				this.includeExternal(pinyinProPath);
 				break;
 		}
 	}
@@ -102,16 +110,53 @@ class Translator {
 				this.finished.ko = true;
 				break;
 			case "zh":
-				if (this.OpenCC) return;
-				if (typeof OpenCC === "undefined") {
-					await Translator.#sleep(50);
-					return this.createTranslator(lang);
+				// OpenCC
+				if (!this.OpenCC) {
+					if (typeof OpenCC === "undefined") {
+						await Translator.#sleep(50);
+						return this.createTranslator(lang);
+					}
+					this.OpenCC = OpenCC;
 				}
-
-				this.OpenCC = OpenCC;
+				// mark zh as finished for OpenCC work
 				this.finished.zh = true;
+
+				// detect pinyin library presence (non-blocking)
+				if (typeof window.pinyinPro !== "undefined" || typeof window.pinyin !== "undefined" || typeof window.Pinyin !== "undefined") {
+					this._pinyinLoaded = true;
+				}
 				break;
 		}
+	}
+
+	/**
+	 * Convert Chinese text to pinyin-annotated ruby HTML.
+	 * It waits briefly for the pinyin UMD script to appear (injected via injectExternals).
+	 */
+	async chineseToPinyinHtml(text) {
+		this.injectExternals("zh");
+
+		const maxWaits = 60; // ~3s at 50ms per wait
+		let waited = 0;
+		while (waited < maxWaits) {
+			if (typeof window.pinyinPro !== "undefined" && typeof window.pinyinPro.html === "function") {
+				try {
+					return window.pinyinPro.html(text, {
+						pinyinClass: "",
+						resultClass: "",
+						chineseClass: "",
+						nonChineseClass: "",
+					});
+				} catch (e) {
+					console.error("pinyinPro.html error", e);
+				}
+			}
+
+			await Translator.#sleep(50);
+			waited++;
+		}
+
+		return text;
 	}
 
 	async romajifyText(text, target = "romaji", mode = "spaced") {
@@ -133,7 +178,7 @@ class Translator {
 		}
 
 		if (target === "hangul") return text;
-		return Aromanize.hangulToLatin(text, "rr-translit");
+		return Aromanize.hangulToLatin(text, "rr");
 	}
 
 	async convertChinese(text, from, target) {
@@ -141,7 +186,9 @@ class Translator {
 			await Translator.#sleep(100);
 			return this.convertChinese(text, from, target);
 		}
-
+		if (target === "pinyin") {
+			return this.chineseToPinyinHtml(text);
+		}
 		const converter = this.OpenCC.Converter({
 			from: from,
 			to: target,

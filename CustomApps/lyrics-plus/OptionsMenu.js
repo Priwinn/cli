@@ -163,10 +163,12 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation, musixmat
 				break;
 			}
 			case "chinese": {
+				// Added `pinyin` mode so users can choose pinyin ruby from the same display-mode select
 				modeOptions = {
 					cn: "Simplified Chinese",
 					hk: "Traditional Chinese (Hong Kong)",
 					tw: "Traditional Chinese (Taiwan)",
+					pinyin: "Pinyin (Ruby)",
 				};
 				break;
 			}

@@ -674,6 +674,12 @@ function openConfig() {
 						reloadLyrics?.();
 					},
 				},
+				{
+					desc: "Chinese Ruby (pinyin)",
+					key: "convert:chinese-ruby",
+					type: ConfigSlider,
+					info: "Display pinyin ruby annotations for Chinese lyrics when available.",
+				},
 			],
 			onChange: (name, value) => {
 				CONFIG.visual[name] = value;

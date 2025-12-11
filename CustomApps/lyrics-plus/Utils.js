@@ -76,6 +76,18 @@ const Utils = {
 		// as Traditional Chinese differs between HK and TW, forcing to use OpenCC standard
 		return this._translatorInstance.convertChinese(s, "t", "cn");
 	},
+	async toPinyinRuby(s) {
+		// ensure a translator instance exists
+		if (!this._translatorInstance) this.translator = new Translator("zh", true);
+
+		try {
+			const html = await this._translatorInstance.chineseToPinyinHtml(await this._translatorInstance.convertChinese(s, "t", "cn"));
+			return this.rubyTextToReactPinyin(html);
+		} catch (e) {
+			console.error("toPinyinRuby error", e);
+			return s;
+		}
+	},
 	removeSongFeat(s) {
 		return (
 			s
@@ -139,6 +151,13 @@ const Utils = {
 			originalText: lyric.text,
 		}));
 	},
+	processTranslatedLyricsPinyin(translated, original) {
+		return original.map((lyric, index) => ({
+			startTime: lyric.startTime || 0,
+			text: this.rubyTextToReactPinyin(translated[index]),
+			originalText: lyric.text,
+		}));
+	},
 	/** It seems that this function is not being used, but I'll keep it just in case it’s needed in the future.*/
 	processTranslatedOriginalLyrics(lyrics, synced) {
 		const data = [];
@@ -182,6 +201,21 @@ const Utils = {
 			reactChildren.push(react.createElement("ruby", null, kanji, react.createElement("rt", null, furigana)));
 
 			reactChildren.push(rubyElems[i].split("</ruby>")[1]);
+		}
+		return react.createElement("p1", null, reactChildren);
+	},
+	rubyTextToReactPinyin(s) {
+		const react = Spicetify.React;
+		const rubyElems = s.split("<span class=\"\"><ruby>");
+		const reactChildren = [];
+
+		reactChildren.push(rubyElems[0].split("</span>")[0]);
+		for (let i = 1; i < rubyElems.length; i++) {
+			const kanji = rubyElems[i].split("<rp>")[0].split("<span class=\"\">")[1].split("</span>")[0];
+			const furigana = rubyElems[i].split("<rt class=\"\">")[1].split("</rt>")[0];
+			reactChildren.push(react.createElement("ruby", null, kanji, react.createElement("rt", null, furigana)));
+
+			reactChildren.push(rubyElems[i].split("</ruby>")[1].split("</span>")[0]);
 		}
 		return react.createElement("p1", null, reactChildren);
 	},

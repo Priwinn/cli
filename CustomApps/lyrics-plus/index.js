@@ -756,6 +756,7 @@ class LyricsContainer extends react.Component {
 					cn: { from: "t", target: "cn" },
 					hk: { from: "t", target: "hk" },
 					tw: { from: "t", target: "tw" },
+					pinyin: { from: "t", target: "pinyin" },
 				};
 
 				// prevent conversion between the same language.
@@ -768,8 +769,12 @@ class LyricsContainer extends react.Component {
 					lyrics.map(async (lyric) => await this.translator.convertChinese(lyric.text, map[targetConvert].from, map[targetConvert].target))
 				);
 			}
-
-			const res = Utils.processTranslatedLyrics(result, lyrics);
+			let res;
+			if (targetConvert === "pinyin") {
+				res = Utils.processTranslatedLyricsPinyin(result, lyrics);
+			} else {
+				res = Utils.processTranslatedLyrics(result, lyrics);
+			}
 			Spicetify.showNotification("Converting...", false, 0);
 			return res;
 		} catch (error) {
