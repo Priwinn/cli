@@ -108,7 +108,13 @@ const Utils = {
 		// Should return IETF BCP 47 language tags.
 		// This should detect the song's main language.
 		// Remember there is a possibility of a song referencing something in another language and the lyrics show it in that native language!
-		const rawLyrics = lyrics[0].originalText ? lyrics.map((line) => line.originalText).join(" ") : lyrics.map((line) => line.text).join(" ");
+		const rawLyrics = lyrics.map((line) => {
+			const text = line.originalText || line.text;
+			if (Array.isArray(text)) {
+				return text.map((item) => item.word).join("");
+			}
+			return text;
+		}).join(" ");
 
 		const kanaRegex = /[\u3001-\u3003]|[\u3005\u3007]|[\u301d-\u301f]|[\u3021-\u3035]|[\u3038-\u303a]|[\u3040-\u30ff]|[\uff66-\uff9f]/gu;
 		const hangulRegex = /(\S*[\u3131-\u314e|\u314f-\u3163|\uac00-\ud7a3]+\S*)/g;
@@ -145,18 +151,40 @@ const Utils = {
 		return ((simpPercentage - tradPercentage + 1) / 2) * 100 >= CONFIG.visual["hans-detect-threshold"] ? "zh-hans" : "zh-hant";
 	},
 	processTranslatedLyrics(translated, original) {
-		return original.map((lyric, index) => ({
-			startTime: lyric.startTime || 0,
-			text: this.rubyTextToReact(translated[index]),
-			originalText: lyric.text,
-		}));
+		return original.map((lyric, index) => {
+			let text = translated[index];
+			if (Array.isArray(text)) {
+				text = text.map((item) => ({
+					...item,
+					word: this.rubyTextToReact(item.word),
+				}));
+			} else {
+				text = this.rubyTextToReact(text);
+			}
+			return {
+				startTime: lyric.startTime || 0,
+				text,
+				originalText: lyric.text,
+			};
+		});
 	},
 	processTranslatedLyricsPinyin(translated, original) {
-		return original.map((lyric, index) => ({
-			startTime: lyric.startTime || 0,
-			text: this.rubyTextToReactPinyin(translated[index]),
-			originalText: lyric.text,
-		}));
+		return original.map((lyric, index) => {
+			let text = translated[index];
+			if (Array.isArray(text)) {
+				text = text.map((item) => ({
+					...item,
+					word: this.rubyTextToReactPinyin(item.word),
+				}));
+			} else {
+				text = this.rubyTextToReactPinyin(text);
+			}
+			return {
+				startTime: lyric.startTime || 0,
+				text,
+				originalText: lyric.text,
+			};
+		});
 	},
 	/** It seems that this function is not being used, but I'll keep it just in case it’s needed in the future.*/
 	processTranslatedOriginalLyrics(lyrics, synced) {
@@ -215,7 +243,17 @@ const Utils = {
 			const furigana = rubyElems[i].split("<rt class=\"\">")[1].split("</rt>")[0];
 			reactChildren.push(react.createElement("ruby", null, kanji, react.createElement("rt", null, furigana)));
 
-			reactChildren.push(rubyElems[i].split("</ruby>")[1].split("</span>")[0]);
+			// Get text after </ruby> and </span>, preserving spaces between ruby elements
+			const afterRuby = rubyElems[i].split("</ruby>")[1];
+			const afterSpan = afterRuby.split("</span>");
+			// Text between </ruby> and </span>
+			if (afterSpan[0]) {
+				reactChildren.push(afterSpan[0]);
+			}
+			// Text after </span> (spaces between ruby elements)
+			if (afterSpan[1]) {
+				reactChildren.push(afterSpan[1]);
+			}
 		}
 		return react.createElement("p1", null, reactChildren);
 	},

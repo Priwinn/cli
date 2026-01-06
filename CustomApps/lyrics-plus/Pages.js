@@ -58,25 +58,404 @@ const useTrackPosition = (callback) => {
 
 const KaraokeLine = ({ text, isActive, position, startTime }) => {
 	if (!isActive) {
-		return text.map(({ word }) => word).join("");
+		return text.map(({ word }) => word);
 	}
 
-	return text.map(({ word, time }) => {
-		const isWordActive = position >= startTime;
-		startTime += time;
+	// Helper function to count animatable characters in an element
+	const countCharacters = (element) => {
+		if (!react.isValidElement(element)) {
+			// Plain text - count characters
+			return typeof element === "string" ? element.length : 0;
+		}
+		if (element.type === "ruby") {
+			// For ruby, count the main text characters (not the rt/furigana)
+			const rubyChildren = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			let charCount = 0;
+			for (const child of rubyChildren) {
+				if (!react.isValidElement(child) && typeof child === "string") {
+					charCount += child.length;
+				}
+			}
+			return charCount || 1;
+		}
+		if (element.props && element.props.children) {
+			const children = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			return children.reduce((count, child) => count + countCharacters(child), 0);
+		}
+		return 1;
+	};
+
+	// Helper function to apply karaoke animation to ruby elements with distributed timing
+	const applyKaraokeToRuby = (element, wordStartTime, totalTime) => {
+		if (!react.isValidElement(element)) {
+			// Plain text - wrap in animated span
+			const isWordActive = position >= wordStartTime;
+			const elapsed = Math.max(0, position - wordStartTime);
+			const progress = totalTime > 0 ? Math.min(1, elapsed / totalTime) : 1;
+			const bgPosition = isWordActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+			const isComplete = progress >= 1;
+			return react.createElement(
+				"span",
+				{
+					className: "lyrics-lyricsContainer-Karaoke-Word",
+					style: {
+						"--word-duration": "0ms",
+						backgroundPosition: bgPosition,
+						WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+					},
+				},
+				element
+			);
+		}
+
+		// Check if this is a container element (like p1) with ruby children
+		if (element.props && element.props.children) {
+			const children = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			
+			// Check if this contains ruby elements (translation) - if so, add flat time delays
+			const hasRuby = children.some(child => react.isValidElement(child) && child.type === "ruby");
+			const DELAY_MS = 350; // Flat delay in ms for start and end
+			const startDelay = hasRuby ? DELAY_MS : 0;
+			const endDelay = hasRuby ? DELAY_MS : 0;
+			const adjustedTotalTime = totalTime - startDelay - endDelay > 0 ? totalTime - startDelay - endDelay : totalTime;
+			
+			// Count total characters across all children for proportional timing
+			const totalChars = children.reduce((count, child) => {
+				if (react.isValidElement(child) && child.type === "ruby") {
+					return count + countCharacters(child);
+				}
+				if (!react.isValidElement(child) && child) {
+					return count + (typeof child === "string" ? child.length : 1);
+				}
+				return count;
+			}, 0);
+			
+			const timePerChar = totalChars > 0 ? Math.max(0, adjustedTotalTime) / totalChars : adjustedTotalTime;
+			let currentStartTime = wordStartTime + startDelay; // Start after the delay
+			
+			const newChildren = children.map((child, idx) => {
+				if (!react.isValidElement(child)) {
+					// Plain text child - wrap in animated span with timing based on character count
+					if (child) {
+						const charCount = typeof child === "string" ? child.length : 1;
+						const elementTime = charCount * timePerChar;
+						const isCharActive = position >= currentStartTime;
+						const elapsed = Math.max(0, position - currentStartTime);
+						const progress = elementTime > 0 ? Math.min(1, elapsed / elementTime) : 1;
+						const bgPosition = isCharActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+						const isComplete = progress >= 1;
+						const charElement = react.createElement(
+							"span",
+							{
+								key: `text-${idx}`,
+								className: "lyrics-lyricsContainer-Karaoke-Word",
+								style: {
+									"--word-duration": "0ms",
+									backgroundPosition: bgPosition,
+									WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+								},
+							},
+							child
+						);
+						currentStartTime += elementTime;
+						return charElement;
+					}
+					return child;
+				}
+
+				// Check if it's a ruby element
+				if (child.type === "ruby") {
+					const charCount = countCharacters(child);
+					const elementTime = charCount * timePerChar;
+					const isCharActive = position >= currentStartTime;
+					const elapsed = Math.max(0, position - currentStartTime);
+					const progress = elementTime > 0 ? Math.min(1, elapsed / elementTime) : 1;
+					const bgPosition = isCharActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+					const isComplete = progress >= 1;
+					const rubyChildren = Array.isArray(child.props.children) ? child.props.children : [child.props.children];
+					
+					// Apply karaoke styles directly to the ruby element and its rt children
+					const newRubyChildren = rubyChildren.map((rubyChild, rubyIdx) => {
+						// rt element - apply karaoke class directly to rt
+						if (react.isValidElement(rubyChild) && rubyChild.type === "rt") {
+							return react.createElement(
+								"rt",
+								{
+									key: `rt-${rubyIdx}`,
+									className: "lyrics-lyricsContainer-Karaoke-Word",
+									style: {
+										"--word-duration": "0ms",
+										backgroundPosition: bgPosition,
+										WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+									},
+								},
+								rubyChild.props.children
+							);
+						}
+						return rubyChild;
+					});
+					
+					// Apply karaoke class directly to ruby element
+					currentStartTime += elementTime;
+					return react.createElement(
+						"ruby",
+						{
+							key: `ruby-${idx}`,
+							className: "lyrics-lyricsContainer-Karaoke-Word",
+							style: {
+								"--word-duration": "0ms",
+								backgroundPosition: bgPosition,
+								WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+							},
+						},
+						...newRubyChildren
+					);
+				}
+
+				return child;
+			});
+			return react.createElement(element.type, { ...element.props, key: "container" }, newChildren);
+		}
+
+		// Fallback - wrap the whole element
+		const isWordActive = position >= wordStartTime;
+		const elapsed = Math.max(0, position - wordStartTime);
+		const progress = totalTime > 0 ? Math.min(1, elapsed / totalTime) : 1;
+		const bgPosition = isWordActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+		const isComplete = progress >= 1;
 		return react.createElement(
 			"span",
 			{
-				className: `lyrics-lyricsContainer-Karaoke-Word${isWordActive ? " lyrics-lyricsContainer-Karaoke-WordActive" : ""}`,
+				className: "lyrics-lyricsContainer-Karaoke-Word",
 				style: {
-					"--word-duration": `${time}ms`,
-					// don't animate unless we have to
-					transition: !isWordActive ? "all 0s linear" : "",
+					"--word-duration": "0ms",
+					backgroundPosition: bgPosition,
+					WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+				},
+			},
+			element
+		);
+	};
+
+	return text.map(({ word, time }, index) => {
+		const wordStartTime = startTime;
+		startTime += time;
+
+		// Check if word is a React element (like ruby text)
+		if (react.isValidElement(word)) {
+			return react.createElement(react.Fragment, { key: index }, applyKaraokeToRuby(word, wordStartTime, time));
+		}
+
+		// Plain text word - calculate progress for inline background-position
+		const isWordActive = position >= wordStartTime;
+		const isWordComplete = position >= wordStartTime + time;
+		const elapsed = Math.max(0, position - wordStartTime);
+		const progress = time > 0 ? Math.min(1, elapsed / time) : 1;
+		// background-position goes from 100% (inactive) to 0% (active)
+		const bgPosition = isWordActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+		
+		return react.createElement(
+			"span",
+			{
+				key: index,
+				className: "lyrics-lyricsContainer-Karaoke-Word",
+				style: {
+					"--word-duration": "0ms",
+					backgroundPosition: bgPosition,
+					WebkitTextFillColor: isWordComplete ? "var(--lyrics-color-active)" : undefined,
 				},
 			},
 			word
 		);
 	});
+};
+
+// Component for uniform animation across synced lyrics line with character-based timing
+const SyncedLine = ({ text, isActive, position, startTime, endTime }) => {
+	// Calculate duration from start to end time
+	const duration = endTime - startTime;
+	
+	if (!isActive || duration <= 0) {
+		return text;
+	}
+	
+	// Helper function to count animatable characters in an element
+	const countCharacters = (element) => {
+		if (!react.isValidElement(element)) {
+			// Plain text - count characters
+			return typeof element === "string" ? element.length : 0;
+		}
+		if (element.type === "ruby") {
+			// For ruby, count the main text characters (not the rt/furigana)
+			const rubyChildren = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			let charCount = 0;
+			for (const child of rubyChildren) {
+				if (!react.isValidElement(child) && typeof child === "string") {
+					charCount += child.length;
+				}
+			}
+			return charCount || 1;
+		}
+		if (element.props && element.props.children) {
+			const children = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			return children.reduce((count, child) => count + countCharacters(child), 0);
+		}
+		return 1;
+	};
+	
+	// Helper to apply animation with distributed timing
+	const applyAnimationToElement = (element, elementStartTime, totalTime) => {
+		if (!react.isValidElement(element)) {
+			// Plain text - wrap in animated span
+			const isElementActive = position >= elementStartTime;
+			const elapsed = Math.max(0, position - elementStartTime);
+			const progress = totalTime > 0 ? Math.min(1, elapsed / totalTime) : 1;
+			const bgPosition = isElementActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+			const isComplete = progress >= 1;
+			return react.createElement(
+				"span",
+				{
+					className: "lyrics-lyricsContainer-Karaoke-Word",
+					style: {
+						"--word-duration": "0ms",
+						backgroundPosition: bgPosition,
+						WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+					},
+				},
+				element
+			);
+		}
+		
+		// Handle container elements with children (like p1 wrapper)
+		if (element.props && element.props.children) {
+			const children = Array.isArray(element.props.children) ? element.props.children : [element.props.children];
+			
+			// Check if this contains ruby elements (translation) - if so, add flat time delays
+			const hasRuby = children.some(child => react.isValidElement(child) && child.type === "ruby");
+			const DELAY_MS = 300; // Flat delay in ms for start and end
+			const startDelay = hasRuby ? DELAY_MS : 0;
+			const endDelay = hasRuby ? DELAY_MS : 0;
+			const adjustedTotalTime = totalTime - startDelay - endDelay;
+			
+			// Count total characters across all children for proportional timing
+			const totalChars = children.reduce((count, child) => {
+				if (react.isValidElement(child) && child.type === "ruby") {
+					return count + countCharacters(child);
+				}
+				if (!react.isValidElement(child) && child) {
+					return count + (typeof child === "string" ? child.length : 1);
+				}
+				return count;
+			}, 0);
+			
+			const timePerChar = totalChars > 0 ? Math.max(0, adjustedTotalTime) / totalChars : adjustedTotalTime;
+			let currentStartTime = elementStartTime + startDelay; // Start after the delay
+			
+			const newChildren = children.map((child, idx) => {
+				if (!react.isValidElement(child)) {
+					// Plain text - wrap in animated span with timing based on character count
+					if (child) {
+						const charCount = typeof child === "string" ? child.length : 1;
+						const elementTime = charCount * timePerChar;
+						const isCharActive = position >= currentStartTime;
+						const elapsed = Math.max(0, position - currentStartTime);
+						const progress = elementTime > 0 ? Math.min(1, elapsed / elementTime) : 1;
+						const bgPosition = isCharActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+						const isComplete = progress >= 1;
+						const charElement = react.createElement(
+							"span",
+							{
+								key: `text-${idx}`,
+								className: "lyrics-lyricsContainer-Karaoke-Word",
+								style: {
+									"--word-duration": "0ms",
+									backgroundPosition: bgPosition,
+									WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+								},
+							},
+							child
+						);
+						currentStartTime += elementTime;
+						return charElement;
+					}
+					return child;
+				}
+				
+				// Handle ruby elements
+				if (child.type === "ruby") {
+					const charCount = countCharacters(child);
+					const elementTime = charCount * timePerChar;
+					const isCharActive = position >= currentStartTime;
+					const elapsed = Math.max(0, position - currentStartTime);
+					const progress = elementTime > 0 ? Math.min(1, elapsed / elementTime) : 1;
+					const bgPosition = isCharActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+					const isComplete = progress >= 1;
+					const rubyChildren = Array.isArray(child.props.children) ? child.props.children : [child.props.children];
+					
+					// Apply karaoke styles directly to the ruby element and its rt children
+					const newRubyChildren = rubyChildren.map((rubyChild, rubyIdx) => {
+						// rt element - apply karaoke class directly to rt
+						if (react.isValidElement(rubyChild) && rubyChild.type === "rt") {
+							return react.createElement(
+								"rt",
+								{
+									key: `rt-${rubyIdx}`,
+									className: "lyrics-lyricsContainer-Karaoke-Word",
+									style: {
+										"--word-duration": "0ms",
+										backgroundPosition: bgPosition,
+										WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+									},
+								},
+								rubyChild.props.children
+							);
+						}
+						return rubyChild;
+					});
+					
+					// Apply karaoke class directly to ruby element
+					currentStartTime += elementTime;
+					return react.createElement(
+						"ruby",
+						{
+							key: `ruby-${idx}`,
+							className: "lyrics-lyricsContainer-Karaoke-Word",
+							style: {
+								"--word-duration": "0ms",
+								backgroundPosition: bgPosition,
+								WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+							},
+						},
+						...newRubyChildren
+					);
+				}
+				
+				return child;
+			});
+			return react.createElement(element.type, { ...element.props, key: "container" }, newChildren);
+		}
+		
+		// Fallback - wrap the element
+		const isElementActive = position >= elementStartTime;
+		const elapsed = Math.max(0, position - elementStartTime);
+		const progress = totalTime > 0 ? Math.min(1, elapsed / totalTime) : 1;
+		const bgPosition = isElementActive ? `top left ${100 - progress * 100}%` : "top left 100%";
+		const isComplete = progress >= 1;
+		return react.createElement(
+			"span",
+			{
+				className: "lyrics-lyricsContainer-Karaoke-Word",
+				style: {
+					"--word-duration": "0ms",
+					backgroundPosition: bgPosition,
+					WebkitTextFillColor: isComplete ? "var(--lyrics-color-active)" : undefined,
+				},
+			},
+			element
+		);
+	};
+	
+	return applyAnimationToElement(text, startTime, duration);
 };
 
 const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara }) => {
@@ -138,13 +517,17 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 				},
 				key: lyricsId,
 			},
-			activeLines.map(({ text, lineNumber, startTime, originalText }, i) => {
+			activeLines.map(({ text, lineNumber, startTime, originalText }, i, allLines) => {
 				if (i === 1 && activeLineIndex === 1) {
 					return react.createElement(IdlingIndicator, {
 						progress: position / activeLines[2].startTime,
 						delay: activeLines[2].startTime / 3,
 					});
 				}
+
+				// Calculate end time from next line's start time
+				const nextLine = allLines[i + 1];
+				const endTime = nextLine ? nextLine.startTime : startTime + 5000;
 
 				let className = "lyrics-lyricsContainer-LyricsLine";
 				const activeElementIndex = Math.min(activeLineIndex, CONFIG.visual["lines-before"] + 1);
@@ -173,7 +556,13 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 				const lineText = originalText && showTranslatedBelow ? originalText : text;
 
 				// Convert lyrics to text for comparison
-				const belowOrigin = (typeof originalText === "object" ? originalText?.props?.children?.[0] : originalText)?.replace(/\s+/g, "");
+				const belowOrigin = (
+									Array.isArray(originalText)
+										? originalText.map((x) => x.word).join("")
+										: typeof originalText === "object"
+										? originalText?.props?.children?.[0]
+										: originalText
+								)?.replace(/\s+/g, "");
 				const belowTxt = (typeof text === "object" ? text?.props?.children?.[0] : text)?.replace(/\s+/g, "");
 
 				const belowMode = showTranslatedBelow && originalText && belowOrigin !== belowTxt;
@@ -207,15 +596,16 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 									.catch(() => Spicetify.showNotification("Failed to copy lyrics to clipboard"));
 							},
 						},
-						!isKara ? lineText : react.createElement(KaraokeLine, { text, startTime, position, isActive })
+						isKara
+							? (Array.isArray(lineText)
+								? react.createElement(KaraokeLine, { text: lineText, startTime, position, isActive })
+								: lineText)
+							: react.createElement(SyncedLine, { text: lineText, startTime, endTime, position, isActive })
 					),
 					belowMode &&
 						react.createElement(
 							"p",
 							{
-								style: {
-									opacity: 0.5,
-								},
 								onContextMenu: (event) => {
 									event.preventDefault();
 									Spicetify.Platform.ClipboardAPI.copy(Utils.convertParsedToLRC(lyrics, belowMode).conver)
@@ -223,7 +613,11 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 										.catch(() => Spicetify.showNotification("Failed to copy translated lyrics to clipboard"));
 								},
 							},
-							text
+							isKara
+								? (Array.isArray(text)
+									? react.createElement(KaraokeLine, { text, startTime, position, isActive })
+									: text)
+								: react.createElement(SyncedLine, { text: Array.isArray(text) ? text.map(({ word }) => word).join("") : text, startTime, endTime, position, isActive })
 						)
 				);
 			})
@@ -439,7 +833,7 @@ const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKa
 		react.createElement("p", {
 			className: "lyrics-lyricsContainer-LyricsUnsyncedPadding",
 		}),
-		padded.map(({ text, startTime, originalText }, i) => {
+		padded.map(({ text, startTime, originalText }, i, allLines) => {
 			if (i === 0) {
 				return react.createElement(IdlingIndicator, {
 					isActive: activeLineIndex === 0,
@@ -447,6 +841,10 @@ const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKa
 					delay: padded[1].startTime / 3,
 				});
 			}
+
+			// Calculate end time from next line's start time
+			const nextLine = allLines[i + 1];
+			const endTime = nextLine ? nextLine.startTime : startTime + 5000;
 
 			const isActive = i === activeLineIndex;
 			const showTranslatedBelow = CONFIG.visual["translate:display-mode"] === "below";
@@ -486,13 +884,16 @@ const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKa
 								.catch(() => Spicetify.showNotification("Failed to copy lyrics to clipboard"));
 						},
 					},
-					!isKara ? lineText : react.createElement(KaraokeLine, { text, startTime, position, isActive })
+					isKara
+						? (Array.isArray(lineText)
+							? react.createElement(KaraokeLine, { text: lineText, startTime, position, isActive })
+							: lineText)
+						: react.createElement(SyncedLine, { text: lineText, startTime, endTime, position, isActive })
 				),
 				belowMode &&
 					react.createElement(
 						"p",
 						{
-							style: { opacity: 0.5 },
 							onContextMenu: (event) => {
 								event.preventDefault();
 								Spicetify.Platform.ClipboardAPI.copy(Utils.convertParsedToLRC(lyrics, belowMode).conver)
@@ -500,7 +901,11 @@ const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKa
 									.catch(() => Spicetify.showNotification("Failed to copy translated lyrics to clipboard"));
 							},
 						},
-						text
+						isKara
+							? (Array.isArray(text)
+								? react.createElement(KaraokeLine, { text, startTime, position, isActive })
+								: text)
+							: react.createElement(SyncedLine, { text: Array.isArray(text) ? text.map(({ word }) => word).join("") : text, startTime, endTime, position, isActive })
 					)
 			);
 		}),
@@ -559,7 +964,6 @@ const UnsyncedLyricsPage = react.memo(({ lyrics, provider, copyright }) => {
 					react.createElement(
 						"p",
 						{
-							style: { opacity: 0.5 },
 							onContextMenu: (event) => {
 								event.preventDefault();
 								Spicetify.Platform.ClipboardAPI.copy(Utils.convertParsedToUnsynced(lyrics, belowMode).conver)

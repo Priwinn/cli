@@ -187,7 +187,15 @@ class Translator {
 			return this.convertChinese(text, from, target);
 		}
 		if (target === "pinyin") {
-			return this.chineseToPinyinHtml(text);
+			let processedText = text;
+			if (from !== "cn") {
+				const converter = this.OpenCC.Converter({
+					from: from,
+					to: "cn",
+				});
+				processedText = converter(text);
+			}
+			return this.chineseToPinyinHtml(processedText);
 		}
 		const converter = this.OpenCC.Converter({
 			from: from,

@@ -345,7 +345,7 @@ class LyricsContainer extends react.Component {
 			return;
 		}
 
-		const baseLyrics = this.state.synced ?? this.state.unsynced;
+		const baseLyrics = this.state.karaoke ?? this.state.synced ?? this.state.unsynced;
 		if (!baseLyrics) {
 			finishRequest();
 			return;
@@ -398,7 +398,7 @@ class LyricsContainer extends react.Component {
 			return;
 		}
 
-		const latestBaseLyrics = this.state.synced ?? this.state.unsynced;
+		const latestBaseLyrics = this.state.karaoke ?? this.state.synced ?? this.state.unsynced;
 		if (!latestBaseLyrics) {
 			finishRequest();
 			return;
@@ -406,7 +406,11 @@ class LyricsContainer extends react.Component {
 
 		const mappedTranslation = latestBaseLyrics.map((line) => {
 			const originalText = line.originalText ?? line.text;
-			const matched = translation.find((entry) => Utils.processLyrics(entry.matchedLine) === Utils.processLyrics(originalText));
+			let matchText = originalText;
+			if (Array.isArray(matchText)) {
+				matchText = matchText.map((x) => x.word).join("");
+			}
+			const matched = translation.find((entry) => Utils.processLyrics(entry.matchedLine) === Utils.processLyrics(matchText));
 
 			return {
 				...line,
@@ -716,8 +720,7 @@ class LyricsContainer extends react.Component {
 		}
 		await this.translator.awaitFinished(language);
 
-		let result;
-		try {
+		const translateText = async (text) => {
 			if (language === "ja") {
 				// Japanese
 				const map = {
@@ -726,13 +729,10 @@ class LyricsContainer extends react.Component {
 					hiragana: { target: "hiragana", mode: "normal" },
 					katakana: { target: "katakana", mode: "normal" },
 				};
-
-				result = await Promise.all(
-					lyrics.map(async (lyric) => await this.translator.romajifyText(lyric.text, map[targetConvert].target, map[targetConvert].mode))
-				);
+				return await this.translator.romajifyText(text, map[targetConvert].target, map[targetConvert].mode);
 			} else if (language === "ko") {
 				// Korean
-				result = await Promise.all(lyrics.map(async (lyric) => await this.translator.convertToRomaja(lyric.text, "romaji")));
+				return await this.translator.convertToRomaja(text, "romaji");
 			} else if (language === "zh-hans") {
 				// Chinese (Simplified)
 				const map = {
@@ -743,13 +743,10 @@ class LyricsContainer extends react.Component {
 
 				// prevent conversion between the same language.
 				if (targetConvert === "cn") {
-					Spicetify.showNotification("No conversion is needed", false, 1000);
-					return lyrics;
+					return text;
 				}
 
-				result = await Promise.all(
-					lyrics.map(async (lyric) => await this.translator.convertChinese(lyric.text, map[targetConvert].from, map[targetConvert].target))
-				);
+				return await this.translator.convertChinese(text, map[targetConvert].from, map[targetConvert].target);
 			} else if (language === "zh-hant") {
 				// Chinese (Traditional)
 				const map = {
@@ -761,14 +758,31 @@ class LyricsContainer extends react.Component {
 
 				// prevent conversion between the same language.
 				if (targetConvert === "tw") {
-					Spicetify.showNotification("No conversion is needed", false, 1000);
-					return lyrics;
+					return text;
 				}
 
-				result = await Promise.all(
-					lyrics.map(async (lyric) => await this.translator.convertChinese(lyric.text, map[targetConvert].from, map[targetConvert].target))
-				);
+				return await this.translator.convertChinese(text, map[targetConvert].from, map[targetConvert].target);
 			}
+		};
+
+		let result;
+		try {
+			result = await Promise.all(
+				lyrics.map(async (lyric) => {
+					if (Array.isArray(lyric.text)) {
+						return await Promise.all(
+							lyric.text.map(async (item) => {
+								return {
+									...item,
+									word: await translateText(item.word),
+								};
+							})
+						);
+					}
+					return await translateText(lyric.text);
+				})
+			);
+
 			let res;
 			if (targetConvert === "pinyin") {
 				res = Utils.processTranslatedLyricsPinyin(result, lyrics);
@@ -1073,13 +1087,13 @@ class LyricsContainer extends react.Component {
 		const hasTranslation = this.state.neteaseTranslation !== null || this.state.musixmatchTranslation !== null || hasMusixmatchLanguages;
 
 		if (mode !== -1) {
-			showTranslationButton = (friendlyLanguage || hasTranslation) && (mode === SYNCED || mode === UNSYNCED);
+			showTranslationButton = (friendlyLanguage || hasTranslation) && (mode === SYNCED || mode === UNSYNCED || mode === KARAOKE);
 
 			if (mode === KARAOKE && this.state.karaoke) {
 				activeItem = react.createElement(CONFIG.visual["synced-compact"] ? SyncedLyricsPage : SyncedExpandedLyricsPage, {
 					isKara: true,
 					trackUri: this.state.uri,
-					lyrics: this.state.karaoke,
+					lyrics: this.state.currentLyrics,
 					provider: this.state.provider,
 					copyright: this.state.copyright,
 					reRenderLyricsPage: this.reRenderLyricsPage,

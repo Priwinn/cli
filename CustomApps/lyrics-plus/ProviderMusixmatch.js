@@ -34,6 +34,31 @@ const ProviderMusixmatch = (() => {
 		return null;
 	}
 
+	let lastRefresh = 0;
+
+	async function refreshToken() {
+		const now = Date.now();
+		if (now - lastRefresh < 1000 * 60 * 30) {
+			return null;
+		}
+
+		try {
+			const { message: response } = await Spicetify.CosmosAsync.get("https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0", null, {
+				authority: "apic-desktop.musixmatch.com",
+			});
+			if (response.header.status_code === 200 && response.body.user_token) {
+				lastRefresh = now;
+				const token = response.body.user_token;
+				CONFIG.providers.musixmatch.token = token;
+				localStorage.setItem("lyrics-plus:provider:musixmatch:token", token);
+				return token;
+			}
+		} catch (e) {
+			console.error(e);
+		}
+		return null;
+	}
+
 	async function findLyrics(info) {
 		const baseURL =
 			"https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?format=json&namespace=lyrics_richsynched&subtitle_format=mxm&app_id=web-desktop-app-v1.0&";
@@ -63,10 +88,26 @@ const ProviderMusixmatch = (() => {
 		body = body.message.body.macro_calls;
 
 		if (body["matcher.track.get"].message.header.status_code !== 200) {
-			return {
-				error: `Requested error: ${body["matcher.track.get"].message.header.mode}`,
-				uri: info.uri,
-			};
+			if (body["matcher.track.get"].message.header.status_code === 401) {
+				const newToken = await refreshToken();
+				if (newToken) {
+					params.usertoken = newToken;
+					const newURL =
+						baseURL +
+						Object.keys(params)
+							.map((key) => `${key}=${encodeURIComponent(params[key])}`)
+							.join("&");
+					body = await Spicetify.CosmosAsync.get(newURL, null, headers);
+					body = body.message.body.macro_calls;
+				}
+			}
+
+			if (body["matcher.track.get"].message.header.status_code !== 200) {
+				return {
+					error: `Requested error: ${body["matcher.track.get"].message.header.mode}`,
+					uri: info.uri,
+				};
+			}
 		}
 		if (body["track.lyrics.get"]?.message?.body?.lyrics?.restricted) {
 			return {
@@ -237,5 +278,5 @@ const ProviderMusixmatch = (() => {
 		}));
 	}
 
-	return { findLyrics, getKaraoke, getSynced, getUnsynced, getTranslation };
+	return { findLyrics, getKaraoke, getSynced, getUnsynced, getTranslation, refreshToken };
 })();

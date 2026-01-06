@@ -311,8 +311,8 @@ div.lyrics-tabBar-headerItemLink {
 	background-image: linear-gradient(
 		to right,
 		var(--lyrics-color-active),
-		var(--lyrics-color-active) 45%,
-		var(--lyrics-color-inactive) 55%,
+		var(--lyrics-color-active) 50%,
+		var(--lyrics-color-inactive) 50%,
 		var(--lyrics-color-inactive)
 	);
 	-webkit-background-clip: text;
